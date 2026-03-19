@@ -39,6 +39,12 @@ store_products.write.mode("overwrite").saveAsTable("store_products")
 
 spark.sql("ALTER TABLE store_products ALTER COLUMN ProductID SET NOT NULL")
 
+# drop child FK constraints first (required before dropping parent PK), making notebook idempotent
+spark.sql("""
+    ALTER TABLE store_sales_order_detail
+    DROP CONSTRAINT IF EXISTS fk_store_products
+""")
+
 # drop constraint if already exists, making notebook idempotent
 spark.sql("""
     ALTER TABLE store_products
@@ -58,6 +64,12 @@ spark.sql("""
 raw_sales_order_header.write.mode("overwrite").saveAsTable("store_sales_order_header")
 
 spark.sql("ALTER TABLE store_sales_order_header ALTER COLUMN SalesOrderID SET NOT NULL")
+
+# drop child FK constraint first (required before dropping parent PK), making notebook idempotent
+spark.sql("""
+    ALTER TABLE store_sales_order_detail
+    DROP CONSTRAINT IF EXISTS fk_store_sales_order_header
+""")
 
 # drop constraint if already exists, making notebook idempotent
 spark.sql("""
