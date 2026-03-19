@@ -63,19 +63,25 @@ joined = store_sales_order_detail.alias("d").join(
 
 publish_orders = (
     joined
-    # count weekdays between OrderDate (inclusive) and ShipDate (exclusive)
-    # sequence() generates an array of dates between the two dates
-    # aggregate() iterates over the array, accumulating +1 for each weekday
-    # dayofweek: 1=Sunday, 2=Monday, ... 6=Friday, 7=Saturday
-    # so "not in (1, 7)" means Monday through Friday only
+    # LeadTimeInBusinessDays: count of weekdays from OrderDate (inclusive) to ShipDate (exclusive)
+    # The sequence is every date between OrderDate and ShipDate minus 1 day.
+    # We subtract 1 day from ShipDate to exclude it from the count, since it's when order left. 
+    # Note: aggregate function is a foldLeft over the dates.
+    #        — Equivalent to a foldLeft:
+    #             array.foldLeft(0)((acc, d) => {
+    #               acc + (if d is M-F then 1 else 0)})
+    # Note on Spark dayofweek: 
+    #          Spark dayofweek returns 1=Sunday, 2=Monday, ..., 6=Friday, 7=Saturday
+    #          so "not in (1, 7)" selects Monday through Friday only
+    # Note on performance: F.aggregate() is a native PySpark function (available since Spark 3.1)
+    #   that compiles to Spark SQL and is optimized by Spark's Catalyst optimizer — same as F.expr.
+    #   Avoid Python UDFs (@udf) for this: they run row-by-row in Python outside the JVM, which is slow.
     .withColumn("LeadTimeInBusinessDays",
-        F.expr("""
-            aggregate(
-                sequence(OrderDate, ShipDate - interval 1 day),
-                0,
-                (acc, d) -> acc + case when dayofweek(d) not in (1, 7) then 1 else 0 end
-            )
-        """)
+        F.aggregate(
+            F.sequence(F.col("OrderDate"), F.date_sub(F.col("ShipDate"), 1)),
+            F.lit(0),
+            lambda acc, d: acc + F.when(F.dayofweek(d).isin(1, 7), 0).otherwise(1)
+        )
     )
     # TotalLineExtendedPrice = quantity * (unit price after discount)
     .withColumn("TotalLineExtendedPrice",
